@@ -1,0 +1,171 @@
+# Name for our workflow, shown in the "Actions" tab
+name: "CI-CD - Deploy ci-cd-practice to CloudHub 2.0"
+
+# TRIGGERS
+# This workflow is triggered manually from the "Actions" tab
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: "Deployment Environment"
+        required: true
+        type: choice
+        options:
+          - Sandbox
+          - STAGE
+          - PROD
+
+# GLOBAL ENVIRONMENT VARIABLES
+env:
+  # Base app name (updated to your new application)
+  APP_BASE_NAME: "ci-cd-practice"
+  # Mule runtime version from your pom.xml
+  MULE_RUNTIME: "4.9.8" 
+  # Java version for the build and deployment
+  JAVA_VERSION: "17"
+  # Path to your settings.xml
+  MAVEN_SETTINGS_PATH: ".maven/settings.xml"
+
+# JOBS
+jobs:
+  # JOB 1: Run tests (MUnits, linters, etc.)
+  test-application:
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Check out your repository code
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      # 2. Set up the specified Java version
+      - name: "Setup Java ${{ env.JAVA_VERSION }}"
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # 3. Cache Maven dependencies
+      - name: "Cache Maven Dependencies"
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # 4. Run the Maven 'test' command
+      # This will run MUnit tests if they exist.
+      # If no tests are present, the job will still succeed.
+      - name: "Run Tests"
+        run: |
+          mvn clean test --settings ${{ env.MAVEN_SETTINGS_PATH }}
+
+  # JOB 2: Build the app and publish it to Anypoint Exchange
+  build-and-publish-to-exchange:
+    # This job runs ONLY after the 'test-application' job succeeds
+    needs: test-application 
+    runs-on: ubuntu-latest
+    
+    steps:
+      # 1. Check out your repository code
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      # 2. Set up the specified Java version
+      - name: "Setup Java ${{ env.JAVA_VERSION }}"
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # 3. Cache Maven dependencies
+      - name: "Cache Maven Dependencies"
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+
+      # 4. Run the Maven 'deploy' command (Build & Publish to Exchange)
+      # We use -DskipTests here because tests were already run in the previous job
+      - name: "Build and Publish to Exchange"
+        run: |
+          mvn clean deploy -DskipTests \
+            --settings ${{ env.MAVEN_SETTINGS_PATH }} \
+            -DconnectedAppClientId=${{ secrets.CONNECTEDAPPCLIENTID }} \
+            -DconnectedAppClientSecret=${{ secrets.CONNECTEDAPPCLIENTSECRET }}
+
+  # JOB 3: Deploy the app from Exchange to CloudHub 2.0
+  deploy-to-cloudhub:
+    # This job runs ONLY after the 'build-and-publish' job succeeds
+    needs: build-and-publish-to-exchange
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1. Check out your repository code
+      - name: "Checkout Repository"
+        uses: actions/checkout@v4
+
+      # 2. Set up the specified Java version
+      - name: "Setup Java ${{ env.JAVA_VERSION }}"
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: ${{ env.JAVA_VERSION }}
+
+      # 3. Cache Maven dependencies
+      - name: "Cache Maven Dependencies"
+        uses: actions/cache@v4
+        with:
+          path: ~/.m2/repository
+          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+          restore-keys: |
+            ${{ runner.os }}-maven-
+            
+      # 4. Set Environment-Specific Variables
+      - name: "Set Environment Configuration"
+        id: set_vars
+        run: |
+          # DEV values
+          if [ "${{ inputs.environment }}" == "Sandbox" ]; then
+            echo "TARGET_NAME=Cloudhub-US-East-2" >> $GITHUB_OUTPUT
+            echo "REPLICAS=1" >> $GITHUB_OUTPUT
+            echo "VCORES=0.1" >> $GITHUB_OUTPUT
+            # This name now uses the new APP_BASE_NAME
+            echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-dev" >> $GITHUB_OUTPUT
+            echo "RELEASE_CHANNEL=LTS" >> $GITHUB_OUTPUT
+
+          # STAGE values
+          elif [ "${{ inputs.environment }}" == "STAGE" ]; then
+            echo "TARGET_NAME=Your-STAGE-Target-Name" >> $GITHUB_OUTPUT
+            echo "REPLICAS=1" >> $GITHUB_OUTPUT
+            echo "VCORES=0.2" >> $GITHUB_OUTPUT
+            echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-stage" >> $GITHUB_OUTPUT
+            echo "RELEASE_CHANNEL=NONE" >> $GITHUB_OUTPUT
+
+          # PROD values
+          elif [ "${{ inputs.environment }}" == "PROD" ]; then
+            echo "TARGET_NAME=Your-PROD-Target-Name" >> $GITHUB_OUTPUT
+            echo "REPLICAS=2" >> $GITHUB_OUTPUT
+            echo "VCORES=1" >> $GITHUB_OUTPUT
+            echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-prod" >> $GITHUB_OUTPUT
+            echo "RELEASE_CHANNEL=LTS" >> $GITHUB_OUTPUT
+          fi
+
+      # 5. Run the Maven 'mule:deploy' goal
+      - name: "Deploy to CloudHub 2.0 (${{ inputs.environment }})"
+        run: |
+          mvn mule:deploy -DskipTests \
+            --settings ${{ env.MAVEN_SETTINGS_PATH }} \
+            -DconnectedAppClientId=${{ secrets.CONNECTEDAPPCLIENTID }} \
+            -DconnectedAppClientSecret=${{ secrets.CONNECTEDAPPCLIENTSECRET }} \
+            -Dserver=anypoint-exchange-v3 \
+            -Denvironment=${{ inputs.environment }} \
+            -DappName=${{ steps.set_vars.outputs.APP_NAME }} \
+            -DtargetName=${{ steps.set_vars.outputs.TARGET_NAME }} \
+            -DmuleVersion=${{ env.MULE_RUNTIME }} \
+            -DreleaseChannel=${{ steps.set_vars.outputs.RELEASE_CHANNEL }} \
+            -DjavaVersion=${{ env.JAVA_VERSION }} \
+            -Dreplicas=${{ steps.set_vars.outputs.REPLICAS }} \
+            -DvCores=${{ steps.set_vars.outputs.VCORES }}
