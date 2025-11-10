@@ -14,7 +14,7 @@
 	<properties>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
-		<business.group.id>ce235d46-115c-497c-b0e2-474afd80f5e9</business.group.id>
+		<business.group.id>42c0ce9a-0a65-40b0-954f-952747d35c84</business.group.id>
 		<app.runtime>4.9.8</app.runtime>
 		<mule.maven.plugin.version>4.3.0</mule.maven.plugin.version>
 	</properties>
