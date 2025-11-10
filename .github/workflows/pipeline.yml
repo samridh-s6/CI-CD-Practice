@@ -161,7 +161,7 @@ jobs:
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-prod" >> $GITHUB_OUTPUT
           fi
 
-      # (CHANGED) --- This step now uses the new inputs ---
+      # (CHANGED) This step now uses the new inputs from the workflow dispatch
       - name: "Deploy to CloudHub 2.0 (${{ inputs.environment }})"
         run: |
           mvn mule:deploy -DskipTests \
@@ -173,7 +173,6 @@ jobs:
             -DappName=${{ steps.set_vars.outputs.APP_NAME }} \
             -DtargetName=${{ steps.set_vars.outputs.TARGET_NAME }} \
             -DjavaVersion=${{ env.JAVA_VERSION }} \
-            # (CHANGED) These lines now read from the workflow inputs
             -DmuleVersion=${{ inputs.muleVersion }} \
             -DreleaseChannel=${{ inputs.releaseChannel }} \
             -Dreplicas=${{ inputs.replicas }} \
