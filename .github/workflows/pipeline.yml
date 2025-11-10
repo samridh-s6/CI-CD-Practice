@@ -1,7 +1,7 @@
 # Name for our workflow, shown in the "Actions" tab
 name: "CI-CD - Deploy ci-cd-practice to CloudHub 2.0"
 
-# TRIGGERS
+# (CHANGED) --- TRIGGERS ---
 # This workflow is triggered manually from the "Actions" tab
 on:
   workflow_dispatch:
@@ -14,13 +14,56 @@ on:
           - Sandbox
           - STAGE
           - PROD
+      # (NEW) --- Added Replicas Dropdown ---
+      replicas:
+        description: "Number of Replicas (workers)"
+        required: true
+        type: choice
+        default: '1'
+        options:
+          - '1'
+          - '2'
+          - '3'
+          - '4'
+      # (NEW) --- Added vCores Dropdown ---
+      vCores:
+        description: "vCores per Replica"
+        required: true
+        type: choice
+        default: '0.1'
+        options:
+          - '0.1'
+          - '0.2'
+          - '0.5'
+          - '1'
+          - '2'
+      # (NEW) --- Added Release Channel Dropdown ---
+      releaseChannel:
+        description: "Mule Runtime Release Channel"
+        required: true
+        type: choice
+        default: 'LTS'
+        options:
+          - 'LTS'
+          - 'EDGE'
+          - 'NONE'
+      # (NEW) --- Added Mule Version Dropdown ---
+      muleVersion:
+        description: "Mule Runtime Version"
+        required: true
+        type: choice
+        default: '4.9.8' # Based on your previous file
+        options:
+          - '4.9.8'
+          - '4.7.0'
+          - '4.6.0'
+          # Add any other versions you target
 
 # GLOBAL ENVIRONMENT VARIABLES
 env:
-  # Base app name (updated to your new application)
+  # Base app name
   APP_BASE_NAME: "ci-cd-practice"
-  # Mule runtime version from your pom.xml
-  MULE_RUNTIME: "4.9.8" 
+  # (CHANGED) MULE_RUNTIME removed, as it's now an input
   # Java version for the build and deployment
   JAVA_VERSION: "17"
   # Path to your settings.xml
@@ -28,23 +71,18 @@ env:
 
 # JOBS
 jobs:
-  # JOB 1: Run tests (MUnits, linters, etc.)
+  # JOB 1: Run tests
   test-application:
     runs-on: ubuntu-latest
-    
     steps:
-      # 1. Check out your repository code
+      # ... (This job remains unchanged) ...
       - name: "Checkout Repository"
         uses: actions/checkout@v4
-
-      # 2. Set up the specified Java version
       - name: "Setup Java ${{ env.JAVA_VERSION }}"
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: ${{ env.JAVA_VERSION }}
-
-      # 3. Cache Maven dependencies
       - name: "Cache Maven Dependencies"
         uses: actions/cache@v4
         with:
@@ -52,33 +90,23 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-
-      # 4. Run the Maven 'test' command
-      # This will run MUnit tests if they exist.
-      # If no tests are present, the job will still succeed.
       - name: "Run Tests"
         run: |
           mvn clean test --settings ${{ env.MAVEN_SETTINGS_PATH }}
 
-  # JOB 2: Build the app and publish it to Anypoint Exchange
+  # JOB 2: Build and publish
   build-and-publish-to-exchange:
-    # This job runs ONLY after the 'test-application' job succeeds
     needs: test-application 
     runs-on: ubuntu-latest
-    
     steps:
-      # 1. Check out your repository code
+      # ... (This job remains unchanged) ...
       - name: "Checkout Repository"
         uses: actions/checkout@v4
-
-      # 2. Set up the specified Java version
       - name: "Setup Java ${{ env.JAVA_VERSION }}"
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: ${{ env.JAVA_VERSION }}
-
-      # 3. Cache Maven dependencies
       - name: "Cache Maven Dependencies"
         uses: actions/cache@v4
         with:
@@ -86,9 +114,6 @@ jobs:
           key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
           restore-keys: |
             ${{ runner.os }}-maven-
-
-      # 4. Run the Maven 'deploy' command (Build & Publish to Exchange)
-      # We use -DskipTests here because tests were already run in the previous job
       - name: "Build and Publish to Exchange"
         run: |
           mvn clean deploy -DskipTests \
@@ -96,25 +121,22 @@ jobs:
             -DconnectedAppClientId=${{ secrets.CONNECTEDAPPCLIENTID }} \
             -DconnectedAppClientSecret=${{ secrets.CONNECTEDAPPCLIENTSECRET }}
 
-  # JOB 3: Deploy the app from Exchange to CloudHub 2.0
+  # JOB 3: Deploy to CloudHub
   deploy-to-cloudhub:
-    # This job runs ONLY after the 'build-and-publish' job succeeds
     needs: build-and-publish-to-exchange
     runs-on: ubuntu-latest
-
+    outputs:
+      # This is still used by the email job
+      DEPLOYED_APP_NAME: ${{ steps.set_vars.outputs.APP_NAME }}
+      DEPLOYED_ENV: ${{ inputs.environment }}
     steps:
-      # 1. Check out your repository code
       - name: "Checkout Repository"
         uses: actions/checkout@v4
-
-      # 2. Set up the specified Java version
       - name: "Setup Java ${{ env.JAVA_VERSION }}"
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
           java-version: ${{ env.JAVA_VERSION }}
-
-      # 3. Cache Maven dependencies
       - name: "Cache Maven Dependencies"
         uses: actions/cache@v4
         with:
@@ -123,37 +145,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
             
-      # 4. Set Environment-Specific Variables
-      - name: "Set Environment Configuration"
-        id: set_vars
+      # (CHANGED) --- This script is now simpler ---
+      - name: "Set Environment-Specific Configuration"
+        id: set_vars 
         run: |
-          # DEV values
+          # This script now ONLY sets variables that change per environment
           if [ "${{ inputs.environment }}" == "Sandbox" ]; then
             echo "TARGET_NAME=Cloudhub-US-East-2" >> $GITHUB_OUTPUT
-            echo "REPLICAS=1" >> $GITHUB_OUTPUT
-            echo "VCORES=0.1" >> $GITHUB_OUTPUT
-            # This name now uses the new APP_BASE_NAME
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-dev" >> $GITHUB_OUTPUT
-            echo "RELEASE_CHANNEL=LTS" >> $GITHUB_OUTPUT
-
-          # STAGE values
           elif [ "${{ inputs.environment }}" == "STAGE" ]; then
             echo "TARGET_NAME=Your-STAGE-Target-Name" >> $GITHUB_OUTPUT
-            echo "REPLICAS=1" >> $GITHUB_OUTPUT
-            echo "VCORES=0.2" >> $GITHUB_OUTPUT
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-stage" >> $GITHUB_OUTPUT
-            echo "RELEASE_CHANNEL=NONE" >> $GITHUB_OUTPUT
-
-          # PROD values
           elif [ "${{ inputs.environment }}" == "PROD" ]; then
             echo "TARGET_NAME=Your-PROD-Target-Name" >> $GITHUB_OUTPUT
-            echo "REPLICAS=2" >> $GITHUB_OUTPUT
-            echo "VCORES=1" >> $GITHUB_OUTPUT
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-prod" >> $GITHUB_OUTPUT
-            echo "RELEASE_CHANNEL=LTS" >> $GITHUB_OUTPUT
           fi
 
-      # 5. Run the Maven 'mule:deploy' goal
+      # (CHANGED) --- This step now uses the new inputs ---
       - name: "Deploy to CloudHub 2.0 (${{ inputs.environment }})"
         run: |
           mvn mule:deploy -DskipTests \
@@ -164,8 +172,33 @@ jobs:
             -Denvironment=${{ inputs.environment }} \
             -DappName=${{ steps.set_vars.outputs.APP_NAME }} \
             -DtargetName=${{ steps.set_vars.outputs.TARGET_NAME }} \
-            -DmuleVersion=${{ env.MULE_RUNTIME }} \
-            -DreleaseChannel=${{ steps.set_vars.outputs.RELEASE_CHANNEL }} \
             -DjavaVersion=${{ env.JAVA_VERSION }} \
-            -Dreplicas=${{ steps.set_vars.outputs.REPLICAS }} \
-            -DvCores=${{ steps.set_vars.outputs.VCORES }}
+            # (CHANGED) These lines now read from the workflow inputs
+            -DmuleVersion=${{ inputs.muleVersion }} \
+            -DreleaseChannel=${{ inputs.releaseChannel }} \
+            -Dreplicas=${{ inputs.replicas }} \
+            -DvCores=${{ inputs.vCores }}
+
+  # JOB 4: Send email notification
+  send-notification:
+    needs: deploy-to-cloudhub 
+    runs-on: ubuntu-latest
+    steps:
+      # ... (This job remains unchanged) ...
+      - name: "Send Deployment Success Email"
+        uses: dawidd6/action-send-mail@v3
+        with:
+          server_address: "smtp.gmail.com"
+          server_port: 465
+          username: ${{ secrets.SMTP_USERNAME }}
+          password: ${{ secrets.SMTP_PASSWORD }}
+          subject: "SUCCESS: Deployed ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }} to ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}"
+          body: |
+            The application **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }}** was successfully deployed to the **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}** environment.
+
+            **Triggered by:** ${{ github.actor }}
+            
+            You can view the full workflow run here:
+            ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          to: ${{ secrets.EMAIL_RECIPIENTS }}
+          from: GitHub Actions CI <${{ secrets.SMTP_USERNAME }}>
