@@ -11,7 +11,7 @@ on:
         required: true
         type: choice
         options:
-          - DEV
+          - Sandbox
           - STAGE
           - PROD
 
@@ -128,7 +128,7 @@ jobs:
         id: set_vars
         run: |
           # DEV values
-          if [ "${{ inputs.environment }}" == "DEV" ]; then
+          if [ "${{ inputs.environment }}" == "Sandbox" ]; then
             echo "TARGET_NAME=Cloudhub-US-East-2" >> $GITHUB_OUTPUT
             echo "REPLICAS=1" >> $GITHUB_OUTPUT
             echo "VCORES=0.1" >> $GITHUB_OUTPUT
