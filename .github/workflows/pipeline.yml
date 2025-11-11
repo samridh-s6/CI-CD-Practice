@@ -1,9 +1,8 @@
 # Name for our workflow, shown in the "Actions" tab
 name: "CI-CD - Deploy ci-cd-practice to CloudHub 2.0"
 
-# (CHANGED) --- TRIGGERS ---
-# This workflow is triggered manually from the "Actions" tab
 on:
+  # 1. Manual Trigger (same as before)
   workflow_dispatch:
     inputs:
       environment:
@@ -14,7 +13,6 @@ on:
           - Sandbox
           - STAGE
           - PROD
-      # (NEW) --- Added Replicas Dropdown ---
       replicas:
         description: "Number of Replicas (workers)"
         required: true
@@ -25,7 +23,6 @@ on:
           - '2'
           - '3'
           - '4'
-      # (NEW) --- Added vCores Dropdown ---
       vCores:
         description: "vCores per Replica"
         required: true
@@ -37,7 +34,6 @@ on:
           - '0.5'
           - '1'
           - '2'
-      # (NEW) --- Added Release Channel Dropdown ---
       releaseChannel:
         description: "Mule Runtime Release Channel"
         required: true
@@ -47,26 +43,30 @@ on:
           - 'LTS'
           - 'EDGE'
           - 'NONE'
-      # (NEW) --- Added Mule Version Dropdown ---
       muleVersion:
         description: "Mule Runtime Version"
         required: true
         type: choice
-        default: '4.9.8' # Based on your previous file
+        default: '4.9.8'
         options:
           - '4.9.8'
           - '4.7.0'
           - '4.6.0'
-          # Add any other versions you target
+
+  # 2. Push Trigger (runs on push to the 'main' branch) ---
+  push:
+    branches:
+      - main
+      # You can add other branches like: - master
+
+  # 3. Scheduled Trigger (runs at 5:00 AM UTC every Monday) ---
+  schedule:
+    - cron: '0 5 * * 1' # A "cron" string: min hour day(month) month day(week)
 
 # GLOBAL ENVIRONMENT VARIABLES
 env:
-  # Base app name
   APP_BASE_NAME: "ci-cd-practice"
-  # (CHANGED) MULE_RUNTIME removed, as it's now an input
-  # Java version for the build and deployment
   JAVA_VERSION: "17"
-  # Path to your settings.xml
   MAVEN_SETTINGS_PATH: ".maven/settings.xml"
 
 # JOBS
@@ -75,7 +75,6 @@ jobs:
   test-application:
     runs-on: ubuntu-latest
     steps:
-      # ... (This job remains unchanged) ...
       - name: "Checkout Repository"
         uses: actions/checkout@v4
       - name: "Setup Java ${{ env.JAVA_VERSION }}"
@@ -99,7 +98,6 @@ jobs:
     needs: test-application 
     runs-on: ubuntu-latest
     steps:
-      # ... (This job remains unchanged) ...
       - name: "Checkout Repository"
         uses: actions/checkout@v4
       - name: "Setup Java ${{ env.JAVA_VERSION }}"
@@ -125,10 +123,12 @@ jobs:
   deploy-to-cloudhub:
     needs: build-and-publish-to-exchange
     runs-on: ubuntu-latest
+    
+    # (CHANGED) --- This now uses the new setup step's output ---
     outputs:
-      # This is still used by the email job
       DEPLOYED_APP_NAME: ${{ steps.set_vars.outputs.APP_NAME }}
-      DEPLOYED_ENV: ${{ inputs.environment }}
+      DEPLOYED_ENV: ${{ steps.set_exec_vars.outputs.DEPLOY_ENV }} # Changed from inputs.environment
+
     steps:
       - name: "Checkout Repository"
         uses: actions/checkout@v4
@@ -145,45 +145,67 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
             
-      # (CHANGED) --- This script is now simpler ---
+      # (NEW) --- This step sets variables for all triggers ---
+      - name: "Set Execution Variables"
+        id: set_exec_vars
+        run: |
+          # Check if this was a manual run
+          if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
+            echo "Setting variables from MANUAL inputs..."
+            echo "DEPLOY_ENV=${{ inputs.environment }}" >> $GITHUB_OUTPUT
+            echo "REPLICAS=${{ inputs.replicas }}" >> $GITHUB_OUTPUT
+            echo "VCORES=${{ inputs.vCores }}" >> $GITHUB_OUTPUT
+            echo "RELEASE_CHANNEL=${{ inputs.releaseChannel }}" >> $GITHUB_OUTPUT
+            echo "MULE_VERSION=${{ inputs.muleVersion }}" >> $GITHUB_OUTPUT
+          else
+            # Set default values for 'push' or 'schedule'
+            echo "Setting variables from AUTOMATIC (push/schedule) defaults..."
+            echo "DEPLOY_ENV=Sandbox" >> $GITHUB_OUTPUT
+            echo "REPLICAS=1" >> $GITHUB_OUTPUT
+            echo "VCORES=0.1" >> $GITHUB_OUTPUT
+            echo "RELEASE_CHANNEL=LTS" >> $GITHUB_OUTPUT
+            echo "MULE_VERSION=4.9.8" >> $GITHUB_OUTPUT
+          fi
+            
+      # (CHANGED) --- This script now uses the variables from the step above ---
       - name: "Set Environment-Specific Configuration"
         id: set_vars 
         run: |
           # This script now ONLY sets variables that change per environment
-          if [ "${{ inputs.environment }}" == "Sandbox" ]; then
+          if [ "${{ steps.set_exec_vars.outputs.DEPLOY_ENV }}" == "Sandbox" ]; then
             echo "TARGET_NAME=Cloudhub-US-East-2" >> $GITHUB_OUTPUT
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-dev" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.environment }}" == "STAGE" ]; then
+          elif [ "${{ steps.set_exec_vars.outputs.DEPLOY_ENV }}" == "STAGE" ]; then
             echo "TARGET_NAME=Your-STAGE-Target-Name" >> $GITHUB_OUTPUT
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-stage" >> $GITHUB_OUTPUT
-          elif [ "${{ inputs.environment }}" == "PROD" ]; then
+          elif [ "${{ steps.set_exec_vars.outputs.DEPLOY_ENV }}" == "PROD" ]; then
             echo "TARGET_NAME=Your-PROD-Target-Name" >> $GITHUB_OUTPUT
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-prod" >> $GITHUB_OUTPUT
           fi
 
-      # (CHANGED) This step now uses the new inputs from the workflow dispatch
-      - name: "Deploy to CloudHub 2.0 (${{ inputs.environment }})"
+      # (CHANGED) --- This step now uses ALL variables from the 'set_exec_vars' step ---
+      - name: "Deploy to CloudHub 2.0 (${{ steps.set_exec_vars.outputs.DEPLOY_ENV }})"
         run: |
           mvn mule:deploy -DskipTests \
             --settings ${{ env.MAVEN_SETTINGS_PATH }} \
             -DconnectedAppClientId=${{ secrets.CONNECTEDAPPCLIENTID }} \
             -DconnectedAppClientSecret=${{ secrets.CONNECTEDAPPCLIENTSECRET }} \
             -Dserver=anypoint-exchange-v3 \
-            -Denvironment=${{ inputs.environment }} \
+            -Denvironment=${{ steps.set_exec_vars.outputs.DEPLOY_ENV }} \
             -DappName=${{ steps.set_vars.outputs.APP_NAME }} \
             -DtargetName=${{ steps.set_vars.outputs.TARGET_NAME }} \
             -DjavaVersion=${{ env.JAVA_VERSION }} \
-            -DmuleVersion=${{ inputs.muleVersion }} \
-            -DreleaseChannel=${{ inputs.releaseChannel }} \
-            -Dreplicas=${{ inputs.replicas }} \
-            -DvCores=${{ inputs.vCores }}
+            -DmuleVersion=${{ steps.set_exec_vars.outputs.MULE_VERSION }} \
+            -DreleaseChannel=${{ steps.set_exec_vars.outputs.RELEASE_CHANNEL }} \
+            -Dreplicas=${{ steps.set_exec_vars.outputs.REPLICAS }} \
+            -DvCores=${{ steps.set_exec_vars.outputs.VCORES }}
 
   # JOB 4: Send email notification
   send-notification:
+    # This job now works with all trigger types
     needs: deploy-to-cloudhub 
     runs-on: ubuntu-latest
     steps:
-      # ... (This job remains unchanged) ...
       - name: "Send Deployment Success Email"
         uses: dawidd6/action-send-mail@v3
         with:
@@ -191,11 +213,12 @@ jobs:
           server_port: 465
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
+          # This subject now correctly uses the output from the deploy job
           subject: "SUCCESS: Deployed ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }} to ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}"
           body: |
             The application **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }}** was successfully deployed to the **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}** environment.
 
-            **Triggered by:** ${{ github.actor }}
+            **Triggered by:** ${{ github.actor }} (Event: ${{ github.event_name }})
             
             You can view the full workflow run here:
             ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
