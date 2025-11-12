@@ -2,7 +2,7 @@
 name: "CI-CD - Deploy ci-cd-practice to CloudHub 2.0"
 
 on:
-  # 1. Manual Trigger (same as before)
+  # 1. Manual Trigger 
   workflow_dispatch:
     inputs:
       environment:
@@ -57,11 +57,11 @@ on:
   push:
     branches:
       - main
-      # You can add other branches like: - master
+  
 
   # 3. Scheduled Trigger (runs at 5:00 AM UTC every Monday) ---
   schedule:
-    - cron: '0 5 * * 1' # A "cron" string: min hour day(month) month day(week)
+    - cron: '0 5 * * 1' 
 
 # GLOBAL ENVIRONMENT VARIABLES
 env:
@@ -124,10 +124,10 @@ jobs:
     needs: build-and-publish-to-exchange
     runs-on: ubuntu-latest
     
-    # (CHANGED) --- This now uses the new setup step's output ---
+ 
     outputs:
       DEPLOYED_APP_NAME: ${{ steps.set_vars.outputs.APP_NAME }}
-      DEPLOYED_ENV: ${{ steps.set_exec_vars.outputs.DEPLOY_ENV }} # Changed from inputs.environment
+      DEPLOYED_ENV: ${{ steps.set_exec_vars.outputs.DEPLOY_ENV }} 
 
     steps:
       - name: "Checkout Repository"
@@ -145,7 +145,7 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-maven-
             
-      # (NEW) --- This step sets variables for all triggers ---
+      
       - name: "Set Execution Variables"
         id: set_exec_vars
         run: |
@@ -167,7 +167,7 @@ jobs:
             echo "MULE_VERSION=4.9.8" >> $GITHUB_OUTPUT
           fi
             
-      # (CHANGED) --- This script now uses the variables from the step above ---
+      
       - name: "Set Environment-Specific Configuration"
         id: set_vars 
         run: |
@@ -183,7 +183,7 @@ jobs:
             echo "APP_NAME=${{ env.APP_BASE_NAME }}-v1-prod" >> $GITHUB_OUTPUT
           fi
 
-      # (CHANGED) --- This step now uses ALL variables from the 'set_exec_vars' step ---
+
       - name: "Deploy to CloudHub 2.0 (${{ steps.set_exec_vars.outputs.DEPLOY_ENV }})"
         run: |
           mvn mule:deploy -DskipTests \
@@ -202,7 +202,7 @@ jobs:
 
   # JOB 4: Send email notification
   send-notification:
-    # This job now works with all trigger types
+    # This job works with all trigger types
     needs: deploy-to-cloudhub 
     runs-on: ubuntu-latest
     steps:
@@ -213,7 +213,7 @@ jobs:
           server_port: 465
           username: ${{ secrets.SMTP_USERNAME }}
           password: ${{ secrets.SMTP_PASSWORD }}
-          # This subject now correctly uses the output from the deploy job
+
           subject: "SUCCESS: Deployed ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }} to ${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}"
           body: |
             The application **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_APP_NAME }}** was successfully deployed to the **${{ needs.deploy-to-cloudhub.outputs.DEPLOYED_ENV }}** environment.
